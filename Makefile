@@ -16,17 +16,20 @@ MAX_SECTORS = 54
 CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fcf-protection=none \
          -nostdlib -O0 -Wall -Wextra
 
-all: os.img
+all: os.img disk.img
 
 # --- Kernel -----------------------------------------------------------
 kernel/kernel_entry.o: kernel/kernel_entry.asm
 	$(AS) -f elf32 $< -o $@
 
-kernel/kernel.o: kernel/kernel.c
+kernel/ata.o: kernel/ata.c kernel/ata.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+kernel/kernel.o: kernel/kernel.c kernel/ata.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # kernel_entry.o doit rester en premier : c'est lui qui se retrouve à 0x1000
-kernel/kernel.bin: kernel/kernel_entry.o kernel/kernel.o
+kernel/kernel.bin: kernel/kernel_entry.o kernel/kernel.o kernel/ata.o
 	$(LD) -m elf_i386 -z noseparate-code -Ttext $(KERNEL_ADDR) --oformat binary -o $@ $^
 	@# on complète avec des zéros pour avoir un nombre entier de secteurs de 512 octets
 	truncate -s $$(( ($$(stat -c%s $@) + 511) / 512 * 512 )) $@
@@ -44,10 +47,15 @@ boot/boot.bin: boot/boot.asm kernel/kernel.bin
 os.img: boot/boot.bin kernel/kernel.bin
 	cat $^ > $@
 
-run: os.img
-	qemu-system-i386 -drive format=raw,file=os.img
+# --- Disque de données FAT32 (64 Mo) -----------------------------------
+disk.img:
+	dd if=/dev/zero of=$@ bs=1M count=64
+	mkfs.fat -F 32 $@
+
+run: os.img disk.img
+	qemu-system-i386 -drive format=raw,file=os.img -drive format=raw,file=disk.img
 
 clean:
-	rm -f boot/*.bin kernel/*.o kernel/*.bin os.img
+	rm -f boot/*.bin kernel/*.o kernel/*.bin os.img disk.img
 
 .PHONY: all run clean
