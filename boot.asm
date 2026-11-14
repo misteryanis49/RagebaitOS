@@ -1,81 +1,138 @@
-; Pour ce qu'il lise c'est ligne et je pense a mes pote du lycée ne vous inquiété pas j'ai écrit c'est ligne et donc vous n'aurrez pas a plonger dans l'ASM
-; Ce bout de code sert uniquement a boot et provient de ce github https://github.com/cfenollosa/os-tutorial/tree/master/01-bootsector-barebones
+; RageBait OS - bootloader
+
+; J'ai entierement réécrit le boot loader (j'ai fait de la merde mais maintenant c'est bien fait)
+; action réaliser : passage en mode protégé écriture de la GDT, passage en  32 bits
+
+[BITS 16]                   ; on encode en 16 Bits obligatoire pour débuter (on utilise le mode réel du Bios)
+[ORG 0x7C00]                ; étiquette sorte de #include stud.io en C
+
+KERNEL_OFFSET  equ 0x1000    ; adresse où on charge le kernel (le linker doit utiliser la même !)
+KERNEL_SECTORS equ 1         ; nombre de secteurs à lire (1 = 512 octets, on agrandira plus tard)
+
+start:
+    cli                     ; coupe les interruptions le temps d'initialiser la pile
+    mov ax, 0               ; initie ax a 0
+    mov ds, ax              ; DS = 0 : indispensable pour les messages
+    mov es, ax              ; ES = 0 : segment de destination pour int 0x13
+    mov ss, ax
+    mov sp, 0x7C00          ; pile : grandit vers le bas, ne touche pas le code
+    sti                     ; réactive (le BIOS en a besoin pour int 0x10 et 0x13) c'est le changement de mode (utile pour afficher les code de succès / erreur)
+    cld                     ; DF = 0 : lodsb avancera dans le bon sens
+
+    mov [boot_drive], dl    ; sauvegarde le disque de boot (donné par le BIOS)
+
+    mov si, msg_boot
+    call print_string       ; affiche "Bienvenue"
+
+    call load_kernel        ; charge le kernel à 0x1000
+
+    jmp switch_to_pm        ; passe en 32 bits si succès
 
 
-[BITS 16]           ; mode réel de base du processeur/Bios
-[ORG 0x7C00]        ; étiquette de résolution (pour faire simple sa permet de gérez la mémoire plus simplement)
+; print_string : cette fonction sert a afficher tout simplement qu'elle que choise a l'écran (Attention le passage en mode réel est obligatoire)
 
-mov ax, 0               ; Ax est une addresse qui est utiliser a chaque message et doit être init a 0
-mov ds, ax              ; Chiant a expliquer
+print_string:
+    lodsb                   ; AL = [SI], puis SI++
+    cmp al, 0               ; Vérifie si on a finit d'afficher
+    je .done                ; si c'est le cas alors on faire un return (le .done: ret est un return)
+    mov ah, 0x0e            ; fonction "afficher un caractère"
+    mov bh, 0               ; page 0
+    int 0x10                ; applique l'affichage
+    jmp print_string        ; retourne au début du print_string
+.done:
+    ret
 
-mov [boot_drive], dl    ; sa sert a écrire dans le registre mémoire dl et de savoir depuis ou on boot
-mov bx, 0               ; défini l'addresse BX (qui n'est pas utiliser mais ici serviras d'index a 0)
-jmp Afficher_bienvenue  ; jmp sert a sauter de fonction en fonction ce qui est pratique l'équivalent du goto en bash
+; ------------------------------------------------------------
+; load_kernel : lit KERNEL_SECTORS secteurs à partir du secteur 2,
+;               et les copie à l'adresse physique KERNEL_OFFSET
+; ------------------------------------------------------------
 
-
-boot_drive: db 0        ; définie 1 octet dans le fichier binnaire avec l'étiquette/fonction boot_drive qui pointe ici
-
-message:
-    db 'Bienvenue', 0   ; défini les octet avec les chaine ascii
-msg_ok:
-    db ' OK', 0          ; message OK utiliser pour le test secteur
-msg_err:
-    db ' E', 0           ; si la lettre E apparait cela signifie que le test secteur a échouer
-
-
-Afficher_bienvenue:
-    mov al, [message + bx] ; engros cette ligne permet de regarger dans la chaine de character message défini plutot et va a l'index bx
-    cmp al, 0              ; cette ligne est une sorte de if en ASM elle sert a comparer si il a finit d'afficher (engros on regarde si la chaine de charactère vaut nulle)
-    je load_kernel         ; Si vrai alors on load le kernel, le message bienvenue est afficher
-    mov ah, 0x0e           ; sert activer le module vidéo du Bios
-    int 0x10               ; affiche le character charger dans le registre processeur
-    inc bx                 ; c'est le i++; du sa sert a ajouter 1 a l'index bx
-    jmp Afficher_bienvenue ; retourne a mess_pass pour finir d'afficher
-    
-
-load_kernel:                ; cette partie est assez complexe a comprendre, pour être honette j'ai du faire du copier coller (trop compliquer pour moi mais je vais quand même détailler)
-    mov ah, 0x02            ; AH sert a dire qu'on selectionne le secteur 0x02 qui ici est le kernel
-    mov al, 1               ; ici sa sert a dire combien de secteur on souhaite lire, ici 1 = 512 octet
-    mov ch, 0               ; Sa sert a définir ou la tête de lecture doit lire physiquement sur le disque 
-    mov cl, 2               ; on définit le secteur souhaiter c'est le 2 c'est a dire le kernel
-    mov dh, 0               ; Après bonne chance je pige plus rien mais si tu comprend je suis preneur 
+load_kernel:
+    mov ax, 0
+    mov es, ax              ; ES = 0 (segment de destination)
+    mov bx, KERNEL_OFFSET   ; BX = 0x1000 (offset) → ES:BX = 0x0000:0x1000 = physique 0x1000
+    mov ah, 0x02            ; fonction "lire des secteurs"
+    mov al, KERNEL_SECTORS
+    mov ch, 0               ; cylindre 0
+    mov cl, 2               ; secteur 2 (juste après le boot sector)
+    mov dh, 0               ; tête 0
     mov dl, [boot_drive]
-    mov bx, 0x8000
-    mov es, bx
-    mov bx, 0
-
     int 0x13
     jc disk_error
     cmp ah, 0
-    jne disk_error          ; si Error on va aller sur disk_error qui affiche E
-    mov bx, 0
-
-; Si aucune erreur le code continue ici
-affiche_ok:
-    mov al, [msg_ok + bx]
-    cmp al, 0
-    je loop                ; ok afficher on va a loop
-    mov ah, 0x0e
-    int 0x10
-    inc bx
-    jmp affiche_ok
+    jne disk_error
+    ret
 
 disk_error:
-    mov bx, 0
-    
-affiche_err:
-    mov al, [msg_err + bx]
-    cmp al, 0
-    je loop
-    mov ah, 0x0e
-    int 0x10
-    inc bx
-    jmp affiche_err
+    mov si, msg_disk_error
+    call print_string
+hang16:
+    jmp hang16              ; boucle infinie en cas d'erreur disque
 
-loop:
-    jmp loop
+; ------------------------------------------------------------
+; switch_to_pm : active la GDT et passe en mode protégé 32 bits (rédiger par deepseek)
+; ------------------------------------------------------------
+switch_to_pm:
+    cli                     ; plus d'interruptions : vue qu'on passe en 32 bit le Bios ne le supporte plus
+    lgdt [gdt_descriptor]   ; donne la GDT au processeur
+    mov eax, cr0
+    or eax, 1               ; bit 0 de CR0 = PE (Protection Enable)
+    mov cr0, eax
+    jmp CODE_SEG:init_pm    ; far jump : recharge CS et vide le pipeline
 
-times 510-($-$$) db 0; cettte ligne cert uniquement a nasm pour qu'il génère suffisament d'octet vide pour respecter le bootsector
+; ------------------------------------------------------------
+; init_pm : on est maintenant en 32 bits  (rédiger par deepseek)
+; ------------------------------------------------------------
+[BITS 32]
+init_pm:
+    mov ax, DATA_SEG
+    mov ds, ax
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov ss, ax
+    mov esp, 0x90000        ; nouvelle pile en 32 bits, loin du kernel
+    mov ebp, esp
+    call KERNEL_OFFSET      ; saute dans le kernel (kernel_entry.asm -> kernel_main en C)
+.halt:
+    hlt                     ; si le kernel retourne, on stoppe
+    jmp .halt
 
+; ------------------------------------------------------------
+; GDT : 3 entrées de 8 octets (nul, code, données)  (rédiger par deepseek)
+; ------------------------------------------------------------
+gdt_start:
+    dq 0x0                  ; descripteur nul (obligatoire par la spec Intel)
 
-dw 0xaa55 ; signature Bios
+gdt_code:                   ; code : base 0, limite 4 Go, ring 0, exécutable
+    dw 0xFFFF               ; limite (bits 0-15)
+    dw 0x0                  ; base (bits 0-15)
+    db 0x0                  ; base (bits 16-23)
+    db 10011010b            ; access : présent, ring 0, code, exécutable, lisible
+    db 11001111b            ; flags : granularité 4 Ko, mode 32 bits, limite (16-19)
+    db 0x0                  ; base (bits 24-31)
+
+gdt_data:                   ; données : base 0, limite 4 Go, ring 0, lecture/écriture
+    dw 0xFFFF
+    dw 0x0
+    db 0x0
+    db 10010010b            ; access : présent, ring 0, données, écriture
+    db 11001111b
+    db 0x0
+gdt_end:
+
+gdt_descriptor:
+    dw gdt_end - gdt_start - 1  ; taille - 1 (lgdt attend "dernière adresse valide")
+    dd gdt_start                ; adresse physique de la GDT
+
+CODE_SEG equ gdt_code - gdt_start   ; = 0x08
+DATA_SEG equ gdt_data - gdt_start   ; = 0x10
+
+; Donné utile pour les message 
+
+boot_drive:     db 0
+msg_boot:       db 'Bienvenue', 13, 10, 0
+msg_disk_error: db 'Erreur disque', 0
+
+times 510 - ($ - $$) db 0
+dw 0xAA55
