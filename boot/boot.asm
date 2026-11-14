@@ -7,7 +7,10 @@
 [ORG 0x7C00]                ; étiquette sorte de #include stud.io en C
 
 KERNEL_OFFSET  equ 0x1000    ; adresse où on charge le kernel (le linker doit utiliser la même !)
-KERNEL_SECTORS equ 1         ; nombre de secteurs à lire (1 = 512 octets, on agrandira plus tard)
+
+%ifndef KERNEL_SECTORS
+    KERNEL_SECTORS equ 1     
+%endif
 
 start:
     cli                     ; coupe les interruptions le temps d'initialiser la pile

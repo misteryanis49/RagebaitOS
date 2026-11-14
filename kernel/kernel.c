@@ -26,6 +26,5 @@ static void print_at(const char *text, int row, int col, unsigned char color) {
 void kernel_main(void) {
     clear_screen();
     print_at("RageBait OS", 0, 0, COLOR_WHITE_ON_RED);
-    print_at("Kernel charge en C, mode protege 32 bits : ca marche !", 2, 0, COLOR_GREY_ON_BLACK);
-    print_at("(la suite : de quoi vous faire enrager)", 4, 0, COLOR_GREY_ON_BLACK);
+    print_at("Chargement du kernel en 32 bit: Succes", 2, 0, COLOR_GREY_ON_BLACK);
 }
