@@ -7,14 +7,20 @@ AS = nasm
 CC = gcc
 LD = ld
 
-# Doit être la même valeur que KERNEL_OFFSET dans boot/boot.asm
 KERNEL_ADDR = 0x1000
-
-# Place max pour le kernel : entre 0x1000 et 0x7C00 (là où commence le boot sector) = 54 secteurs
 MAX_SECTORS = 54
 
 CFLAGS = -m32 -ffreestanding -fno-pie -fno-stack-protector -fcf-protection=none \
-         -nostdlib -O0 -Wall -Wextra
+         -nostdlib -O0 -Wall -Wextra -std=gnu11
+
+# Ordre critique : kernel_entry.o EN PREMIER
+KERNEL_OBJS = kernel/kernel_entry.o \
+              kernel/kernel.o \
+              kernel/ata.o \
+              kernel/vga.o \
+              kernel/keyboard.o \
+              kernel/terminal.o \
+              kernel/shell.o
 
 all: os.img disk.img
 
@@ -25,16 +31,26 @@ kernel/kernel_entry.o: kernel/kernel_entry.asm
 kernel/ata.o: kernel/ata.c kernel/ata.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-kernel/kernel.o: kernel/kernel.c kernel/ata.h
+kernel/kernel.o: kernel/kernel.c kernel/ata.h kernel/terminal.h kernel/vga.h
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# kernel_entry.o doit rester en premier : c'est lui qui se retrouve à 0x1000
-kernel/kernel.bin: kernel/kernel_entry.o kernel/kernel.o kernel/ata.o
+kernel/vga.o: kernel/vga.c kernel/vga.h kernel/io.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+kernel/keyboard.o: kernel/keyboard.c kernel/keyboard.h kernel/io.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+kernel/terminal.o: kernel/terminal.c kernel/terminal.h kernel/vga.h kernel/keyboard.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+kernel/shell.o: kernel/shell.c kernel/terminal.h kernel/vga.h kernel/keyboard.h kernel/io.h
+	$(CC) $(CFLAGS) -c $< -o $@
+
+kernel/kernel.bin: $(KERNEL_OBJS)
 	$(LD) -m elf_i386 -z noseparate-code -Ttext $(KERNEL_ADDR) --oformat binary -o $@ $^
-	@# on complète avec des zéros pour avoir un nombre entier de secteurs de 512 octets
 	truncate -s $$(( ($$(stat -c%s $@) + 511) / 512 * 512 )) $@
 
-# --- Bootloader (dépend du kernel : il a besoin de sa taille) ----------
+# --- Bootloader -------------------------------------------------------
 boot/boot.bin: boot/boot.asm kernel/kernel.bin
 	@sectors=$$(( $$(stat -c%s kernel/kernel.bin) / 512 )); \
 	if [ $$sectors -gt $(MAX_SECTORS) ]; then \
@@ -43,11 +59,11 @@ boot/boot.bin: boot/boot.asm kernel/kernel.bin
 	echo "Kernel : $$sectors secteur(s) a charger"; \
 	$(AS) -f bin -D KERNEL_SECTORS=$$sectors $< -o $@
 
-# --- Image disque finale ------------------------------------------------
+# --- Image disque finale ----------------------------------------------
 os.img: boot/boot.bin kernel/kernel.bin
 	cat $^ > $@
 
-# --- Disque de données FAT32 (64 Mo) -----------------------------------
+# --- Disque de données FAT32 (64 Mo) ---------------------------------
 disk.img:
 	dd if=/dev/zero of=$@ bs=1M count=64
 	mkfs.fat -F 32 $@

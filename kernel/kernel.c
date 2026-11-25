@@ -5,6 +5,8 @@
  */
 
 #include "ata.h"
+#include "terminal.h"
+
 
 #define VGA_MEMORY ((volatile unsigned short *)0xB8000)
 #define VGA_COLS   80
@@ -64,6 +66,6 @@ void kernel_main(void) {
     } else {
         print_at("ATA: donnees differentes !", 7, 0, 0x0C);
     }
-
-    
+    terminal_init();
+    terminal_run();   // ne retourne jamais
 }
