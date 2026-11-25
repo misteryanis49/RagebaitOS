@@ -16,8 +16,8 @@ Un petit système d'exploitation écrit from scratch.
 | Pilote ATA PIO (écriture) | OK | `ata_write_sectors()` + FLUSH CACHE |
 | Système de fichiers FAT32 (lecture) | En cours | Parsing du BPB, lecture de la FAT |
 | Système de fichiers FAT32 (écriture) |  Prévu | Allocation de clusters, entrées de répertoire |
-| Clavier (PS/2) |  Prévu | Interruptions IRQ1 |
-| Shell / commandes |  Prévu | Interpréteur basique |
+| Clavier (PS/2) |  OK | Interruptions IRQ1 |
+| Shell / commandes |  In dev | Interpréteur basique |
 
 ##  Structure du projet
 
